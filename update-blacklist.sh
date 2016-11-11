@@ -138,6 +138,8 @@ fi
 cat > "$IP_BLACKLIST_DIR/ip-blacklist.set.sh" <<EOSCRIPT
 #!/bin/bash
 
+IPSET_RESTORE="\$1"
+
 for CMD in ipset iptables; do
 	if ! which \$CMD &> /dev/null; then
 		echo >&2 "Error: searching PATH fails to find executable: \$CMD"
@@ -159,7 +161,7 @@ if ! iptables -vL INPUT|command grep -q "match-set $IPSET_BLACKLIST_NAME"; then
 	fi
 fi
 
-if ! ipset -file "$IP_BLACKLIST_RESTORE" restore; then
+if ! ipset -file "\${IPSET_RESTORE:-$IP_BLACKLIST_RESTORE}" restore; then
 	echo >&2 "Error: while restoring ipset to iptables"
 	exit 1
 fi
