@@ -30,7 +30,9 @@ fi
 
 MYTMPDIR=$(mktemp -d)
 
+# remote lists
 if [[ ! -e "$IP_BLACKLIST_REMOTE" ]]; then
+	touch "$IP_BLACKLIST_REMOTE"
 	IP_BLACKLIST_TMP="$MYTMPDIR/ip_blacklist_tmp"
 	CURL_ERROR=false
 	for i in "${BLACKLISTS[@]}"
@@ -57,7 +59,9 @@ if [[ ! -e "$IP_BLACKLIST_REMOTE" ]]; then
 	rm -f "$IP_BLACKLIST_TMP"
 fi
 
+# local black lists
 if [[ ! -e "$IP_BLACKLIST_LOCAL" ]]; then
+	touch "$IP_BLACKLIST_LOCAL"
 	IP_BLACKLIST_LOCAL_TMP="$MYTMPDIR/ip_blacklist_local_tmp"
 	for i in "${BLACKLISTS_LOCAL[@]}"
 	do
