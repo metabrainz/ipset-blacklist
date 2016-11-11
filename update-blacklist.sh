@@ -16,11 +16,12 @@ fi
 
 VERBOSE=${VERBOSE:-no}
 
-NEEDED_COMMANDS="curl egrep grep sed sort wc"
-if ! which $NEEDED_COMMANDS &> /dev/null; then
-    echo >&2 "Error: searching PATH fails to find executables among: $NEEDED_COMMANDS"
-    exit 1
-fi
+for CMD in curl egrep grep sed sort wc; do
+	if ! which $CMD &> /dev/null; then
+		echo >&2 "Error: searching PATH fails to find executable: $CMD"
+		exit 1
+	fi
+done
 
 if [[ ! -d $(dirname "$IP_BLACKLIST") || ! -d $(dirname "$IP_BLACKLIST_RESTORE") ]]; then
     echo >&2 "Error: missing directory(s): $(dirname "$IP_BLACKLIST" "$IP_BLACKLIST_RESTORE"|sort -u)"
