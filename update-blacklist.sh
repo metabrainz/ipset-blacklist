@@ -27,56 +27,7 @@ if [[ ! -d $(dirname "$IP_BLACKLIST") || ! -d $(dirname "$IP_BLACKLIST_RESTORE")
     exit 1
 fi
 
-if [ -f /etc/ip-blacklist.conf ]; then
-    echo >&2 "Error: please remove /etc/ip-blacklist.conf"
-    exit 1
-fi
-
-if [ -f /etc/ip-blacklist-custom.conf ]; then
-    echo >&2 "Error: please reference your /etc/ip-blacklist-custom.conf as a file:// URI inside the BLACKLISTS array"
-    exit 1
-fi
-
 MYTMPDIR=$(mktemp -d)
-
-if [[ ${ONLY_CREATE_LIST:-yes} != yes ]]; then
-	NEEDED_COMMANDS_EXTRA="ipset iptables"
-	if ! which $NEEDED_COMMANDS_EXTRA &> /dev/null; then
-		echo >&2 "Error: searching PATH fails to find executables among: $NEEDED_COMMANDS_EXTRA"
-		exit 1
-	fi
-
-	# create the ipset if needed (or abort if does not exists and FORCE=no)
-	if ! ipset list -n|command grep -q "$IPSET_BLACKLIST_NAME"; then
-		if [[ ${FORCE:-no} != yes ]]; then
-		echo >&2 "Error: ipset does not exist yet, add it using:"
-		echo >&2 "# ipset create $IPSET_BLACKLIST_NAME -exist hash:net family inet hashsize ${HASHSIZE:-16384} maxelem ${MAXELEM:-65536}"
-		exit 1
-		fi
-		if ! ipset create "$IPSET_BLACKLIST_NAME" -exist hash:net family inet hashsize "${HASHSIZE:-16384}" maxelem "${MAXELEM:-65536}"; then
-		echo >&2 "Error: while creating the initial ipset"
-		exit 1
-		fi
-	fi
-
-	# create the iptables binding if needed (or abort if does not exists and FORCE=no)
-	if ! iptables -vL INPUT|command grep -q "match-set $IPSET_BLACKLIST_NAME"; then
-		# we may also have assumed that INPUT rule n°1 is about packets statistics (traffic monitoring)
-		if [[ ${FORCE:-no} != yes ]]; then
-		echo >&2 "Error: iptables does not have the needed ipset INPUT rule, add it using:"
-		echo >&2 "# iptables -I INPUT ${IPTABLES_IPSET_RULE_NUMBER:-1} -m set --match-set $IPSET_BLACKLIST_NAME src -j DROP"
-		exit 1
-		fi
-		if ! iptables -I INPUT "${IPTABLES_IPSET_RULE_NUMBER:-1}" -m set --match-set "$IPSET_BLACKLIST_NAME" src -j DROP; then
-		echo >&2 "Error: while adding the --match-set ipset rule to iptables"
-		exit 1
-		fi
-	fi
-elif [[ "$VERBOSE" == yes ]]; then
-	echo "You'll need to run following commands:"
-	echo "ipset create $IPSET_BLACKLIST_NAME -exist hash:net family inet hashsize ${HASHSIZE:-16384} maxelem ${MAXELEM:-65536}"
-	echo "iptables -I INPUT ${IPTABLES_IPSET_RULE_NUMBER:-1} -m set --match-set $IPSET_BLACKLIST_NAME src -j DROP"
-fi
 
 if [[ ! -e "$IP_BLACKLIST_REMOTE" ]]; then
 	IP_BLACKLIST_TMP="$MYTMPDIR/ip_blacklist_tmp"
@@ -126,11 +77,14 @@ fi
 cat "$IP_BLACKLIST_REMOTE" "$IP_BLACKLIST_LOCAL" | sed -r -e '/^(10\.|127\.|172\.16\.|192\.168\.)/d'|sort -V|sort -mu >| "$IP_BLACKLIST"
 
 # family = inet for IPv4 only
+IPSET_BLACKLIST_OPTIONS="-exist hash:net family inet hashsize ${HASHSIZE:-16384} maxelem ${MAXELEM:-65536}"
+IPSET_BLACKLIST_CREATE="create $IPSET_BLACKLIST_NAME $IPSET_BLACKLIST_OPTIONS"
+IPSET_TMP_BLACKLIST_CREATE="create $IPSET_TMP_BLACKLIST_NAME $IPSET_BLACKLIST_OPTIONS"
 cat >| "$IP_BLACKLIST_RESTORE" <<EOF
-create $IPSET_TMP_BLACKLIST_NAME -exist hash:net family inet hashsize ${HASHSIZE:-16384} maxelem ${MAXELEM:-65536}
-create $IPSET_BLACKLIST_NAME -exist hash:net family inet hashsize ${HASHSIZE:-16384} maxelem ${MAXELEM:-65536}
+$IPSET_TMP_BLACKLIST_CREATE
+$IPSET_BLACKLIST_CREATE
+flush $IPSET_TMP_BLACKLIST_NAME
 EOF
-
 
 # can be IPv4 including netmask notation
 # IPv6 ? -e "s/^([0-9a-f:./]+).*/add $IPSET_TMP_BLACKLIST_NAME \1/p" \ IPv6
@@ -142,13 +96,67 @@ swap $IPSET_BLACKLIST_NAME $IPSET_TMP_BLACKLIST_NAME
 destroy $IPSET_TMP_BLACKLIST_NAME
 EOF
 
-if [[ ${ONLY_CREATE_LIST:-yes} != yes ]]; then
-	ipset -file  "$IP_BLACKLIST_RESTORE" restore
-elif [[ "$VERBOSE" == yes ]]; then
-	echo "ipset -file  "$IP_BLACKLIST_RESTORE" restore"
-fi
-
 if [[ "$VERBOSE" == yes ]]; then
     echo
     echo "Number of blacklisted IP/networks found: `wc -l $IP_BLACKLIST | cut -d' ' -f1`"
 fi
+
+# create set script
+cat > "$IP_BLACKLIST_DIR/ip-blacklist.set.sh" <<EOSCRIPT
+#!/bin/bash
+
+for CMD in ipset iptables; do
+	if ! which \$CMD &> /dev/null; then
+		echo >&2 "Error: searching PATH fails to find executable: \$CMD"
+		exit 1
+	fi
+done
+
+if ! ipset list -n|command grep -q "$IPSET_BLACKLIST_NAME"; then
+	if ! ipset $IPSET_BLACKLIST_CREATE; then
+		echo >&2 "Error: while creating the initial ipset"
+		exit 1
+	fi
+fi
+
+if ! iptables -vL INPUT|command grep -q "match-set $IPSET_BLACKLIST_NAME"; then
+	if ! iptables -I INPUT "${IPTABLES_IPSET_RULE_NUMBER:-1}" -m set --match-set "$IPSET_BLACKLIST_NAME" src -j DROP; then
+		echo >&2 "Error: while adding the --match-set ipset rule to iptables"
+		exit 1
+	fi
+fi
+
+if ! ipset -file "$IP_BLACKLIST_RESTORE" restore; then
+	echo >&2 "Error: while restoring ipset to iptables"
+	exit 1
+fi
+EOSCRIPT
+chmod +x "$IP_BLACKLIST_DIR/ip-blacklist.set.sh"
+
+# create unset script
+cat > "$IP_BLACKLIST_DIR/ip-blacklist.unset.sh" <<EOSCRIPT
+#!/bin/bash
+for CMD in ipset iptables; do
+	if ! which \$CMD &> /dev/null; then
+		echo >&2 "Error: searching PATH fails to find executable: \$CMD"
+		exit 1
+	fi
+done
+
+if iptables -vL INPUT|command grep -q "match-set $IPSET_BLACKLIST_NAME"; then
+	if ! iptables -D INPUT -m set --match-set "$IPSET_BLACKLIST_NAME" src -j DROP; then
+		echo >&2 "Error: while removing the --match-set $IPSET_BLACKLIST_NAME ipset rule from iptables"
+		exit 1
+	fi
+fi
+
+for IPSET in "$IPSET_BLACKLIST_NAME" "$IPSET_TMP_BLACKLIST_NAME"; do
+	if ipset list -n|command grep -q "\$IPSET"; then
+		if ! ipset destroy "\$IPSET"; then
+			echo >&2 "Error: while destroying ipset \$IPSET"
+			exit 1
+		fi
+	fi
+done
+EOSCRIPT
+chmod +x "$IP_BLACKLIST_DIR/ip-blacklist.unset.sh"
