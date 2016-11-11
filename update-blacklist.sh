@@ -67,7 +67,7 @@ if [[ ! -e "$IP_BLACKLIST_LOCAL" ]]; then
 	do
 		FILE="$IP_BLACKLIST_DIR/$i"
 		if [[ -e "$FILE" ]]; then
-			[[ "$VERBOSE" == yes ]] && echo "Adding IPs from $FILE"
+			[[ "$VERBOSE" == yes ]] && echo "Blacklisting IPs from $FILE"
 			grep -Po '(?:\d{1,3}\.){3}\d{1,3}(?:/\d{1,2})?' "$FILE" >> "$IP_BLACKLIST_LOCAL_TMP"
 		else
 			echo >&2 -e "\nError: BLACKLIST_LOCAL: no such file: $FILE"
