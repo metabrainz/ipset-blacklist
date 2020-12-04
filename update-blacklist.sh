@@ -106,7 +106,7 @@ if [[ ! -e "$IP_WHITELIST_LOCAL" ]]; then
 			exit 1
 		fi
 	done
-	sort -V "$IP_WHITELIST_LOCAL_TMP"|sort -n|sort -mu >| "$IP_WHITELIST_LOCAL"
+	filterIPv4 "$IP_WHITELIST_LOCAL_TMP" >| "$IP_WHITELIST_LOCAL"
 	rm -f "$IP_WHITELIST_LOCAL_TMP"
 fi
 
