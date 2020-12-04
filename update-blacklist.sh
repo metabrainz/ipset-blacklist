@@ -164,7 +164,7 @@ if ! ipset list -n|command grep -q "$IPSET_BLACKLIST_NAME"; then
 	fi
 fi
 
-if ! iptables -vL INPUT|command grep -q "match-set $IPSET_BLACKLIST_NAME"; then
+if ! iptables -nvL INPUT|command grep -q "match-set $IPSET_BLACKLIST_NAME"; then
 	if ! iptables -I INPUT "${IPTABLES_IPSET_RULE_NUMBER:-1}" -m set --match-set "$IPSET_BLACKLIST_NAME" src -j DROP; then
 		echo >&2 "Error: while adding the --match-set ipset rule to iptables"
 		exit 1
@@ -188,7 +188,7 @@ for CMD in ipset iptables; do
 	fi
 done
 
-if iptables -vL INPUT|command grep -q "match-set $IPSET_BLACKLIST_NAME"; then
+if iptables -nvL INPUT|command grep -q "match-set $IPSET_BLACKLIST_NAME"; then
 	if ! iptables -D INPUT -m set --match-set "$IPSET_BLACKLIST_NAME" src -j DROP; then
 		echo >&2 "Error: while removing the --match-set $IPSET_BLACKLIST_NAME ipset rule from iptables"
 		exit 1
