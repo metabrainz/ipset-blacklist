@@ -34,6 +34,9 @@ function filterIPv4() {
 	|sort -V \
 	|uniq
 }
+
+function filterNetworks() {
+	sed -r -e '/^(0\.0\.0\.0|10\.|127\.|172\.1[6-9]\.|172\.2[0-9]\.|172\.3[0-1]\.|192\.168\.|22[4-9]\.|23[0-9]\.)/d' "$@"|sort -V|uniq
 }
 
 MYTMPDIR=$(mktemp -d)
@@ -63,7 +66,7 @@ if [[ ! -e "$IP_BLACKLIST_REMOTE" ]]; then
 	fi
 
 	# sort -nu does not work as expected
-	sed -r -e '/^(10\.|127\.|172\.16\.|192\.168\.)/d' "$IP_BLACKLIST_TMP"|sort -n|sort -mu >| "$IP_BLACKLIST_REMOTE"
+	filterNetworks "$IP_BLACKLIST_TMP" >| "$IP_BLACKLIST_REMOTE"
 	rm -f "$IP_BLACKLIST_TMP"
 fi
 
@@ -82,12 +85,11 @@ if [[ ! -e "$IP_BLACKLIST_LOCAL" ]]; then
 			exit 1
 		fi
 	done
-	sed -r -e '/^(10\.|127\.|172\.16\.|192\.168\.)/d' "$IP_BLACKLIST_LOCAL_TMP"|sort -n|sort -mu >| "$IP_BLACKLIST_LOCAL"
+	filterNetworks "$IP_BLACKLIST_LOCAL_TMP" >| "$IP_BLACKLIST_LOCAL"
 	rm -f "$IP_BLACKLIST_LOCAL_TMP"
 fi
 
-# sort -nu does not work as expected
-cat "$IP_BLACKLIST_REMOTE" "$IP_BLACKLIST_LOCAL" | sed -r -e '/^(10\.|127\.|172\.16\.|192\.168\.)/d'|sort -V|sort -mu >| "$IP_BLACKLIST"
+filterNetworks "$IP_BLACKLIST_REMOTE" "$IP_BLACKLIST_LOCAL" >| "$IP_BLACKLIST"
 
 # local white lists
 if [[ ! -e "$IP_WHITELIST_LOCAL" ]]; then
