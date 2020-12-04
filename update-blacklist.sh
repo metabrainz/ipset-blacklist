@@ -28,6 +28,14 @@ if [[ ! -d $(dirname "$IP_BLACKLIST") || ! -d $(dirname "$IP_BLACKLIST_RESTORE")
     exit 1
 fi
 
+function filterIPv4() {
+	grep -h -E -o "^(25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)\.(25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)\.(25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)\.(25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)$" "$@" \
+	|sed -r 's/^0*([0-9]+)\.0*([0-9]+)\.0*([0-9]+)\.0*([0-9]+)$/\1.\2.\3.\4/' \
+	|sort -V \
+	|uniq
+}
+}
+
 MYTMPDIR=$(mktemp -d)
 
 # remote lists
@@ -40,7 +48,7 @@ if [[ ! -e "$IP_BLACKLIST_REMOTE" ]]; then
 		IP_TMP="$MYTMPDIR/ip_tmp"
 		let HTTP_RC=`curl -L -A "blacklist-update/script/github" --connect-timeout 10 --max-time 10 -o $IP_TMP -s -w "%{http_code}" "$i"`
 		if (( $HTTP_RC == 200 || $HTTP_RC == 302 || $HTTP_RC == 0 )); then # "0" because file:/// returns 000
-			command grep -Po '(?:\d{1,3}\.){3}\d{1,3}(?:/\d{1,2})?' "$IP_TMP" >> "$IP_BLACKLIST_TMP"
+			filterIPv4 "$IP_TMP" >> "$IP_BLACKLIST_TMP"
 		[[ "$VERBOSE" == yes ]] && echo "Adding IPs from $i"
 		else
 			CURL_ERROR=true
@@ -68,7 +76,7 @@ if [[ ! -e "$IP_BLACKLIST_LOCAL" ]]; then
 		FILE="$IP_BLACKLIST_DIR/$i"
 		if [[ -e "$FILE" ]]; then
 			[[ "$VERBOSE" == yes ]] && echo "Blacklisting IPs from $FILE"
-			grep -Po '(?:\d{1,3}\.){3}\d{1,3}(?:/\d{1,2})?' "$FILE" >> "$IP_BLACKLIST_LOCAL_TMP"
+			filterIPv4 "$FILE" >> "$IP_BLACKLIST_LOCAL_TMP"
 		else
 			echo >&2 -e "\nError: BLACKLIST_LOCAL: no such file: $FILE"
 			exit 1
@@ -90,7 +98,7 @@ if [[ ! -e "$IP_WHITELIST_LOCAL" ]]; then
 		FILE="$IP_BLACKLIST_DIR/$i"
 		if [[ -e "$FILE" ]]; then
 			[[ "$VERBOSE" == yes ]] && echo "Whitelisting IPs from $FILE"
-			grep -Po '(?:\d{1,3}\.){3}\d{1,3}(?:/\d{1,2})?' "$FILE" >> "$IP_WHITELIST_LOCAL_TMP"
+			filterIPv4 "$FILE" >> "$IP_WHITELIST_LOCAL_TMP"
 		else
 			echo >&2 -e "\nError: WHITELIST_LOCAL: no such file: $FILE"
 			exit 1
