@@ -16,7 +16,7 @@ fi
 
 VERBOSE=${VERBOSE:-no}
 
-for CMD in curl egrep grep sed sort wc; do
+for CMD in curl egrep grep sed sort wc iprange; do
 	if ! which $CMD &> /dev/null; then
 		echo >&2 "Error: searching PATH fails to find executable: $CMD"
 		exit 1
@@ -31,8 +31,7 @@ fi
 function filterIPv4() {
 	grep -hPo '^(?:(?:25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)\.){3}(?:25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)(?:/\d{1,2})?$' "$@" \
 	|sed -r 's/^0*([0-9]+)\.0*([0-9]+)\.0*([0-9]+)\.0*([0-9]+)/\1.\2.\3.\4/' \
-	|sort -V \
-	|uniq
+	|iprange
 }
 
 function filterNetworks() {
