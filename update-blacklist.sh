@@ -49,8 +49,8 @@ if [[ ! -e "$IP_BLACKLIST_REMOTE" ]]; then
 	for i in "${BLACKLISTS[@]}"
 	do
 		IP_TMP="$MYTMPDIR/ip_tmp"
-		let HTTP_RC=`curl -L -A "blacklist-update/script/github" --connect-timeout 10 --max-time 10 -o $IP_TMP -s -w "%{http_code}" "$i"`
-		if (( $HTTP_RC == 200 || $HTTP_RC == 302 || $HTTP_RC == 0 )); then # "0" because file:/// returns 000
+		let HTTP_RC=$(curl -L -A "blacklist-update/script/github" --connect-timeout 10 --max-time 10 -o "$IP_TMP" -s -w "%{http_code}" "$i")
+		if [ $HTTP_RC -eq 200 ] || [ $HTTP_RC -eq 302 ] || [ $HTTP_RC -eq 0 ]; then # "0" because file:/// returns 000
 			filterIPv4 "$IP_TMP" >> "$IP_BLACKLIST_TMP"
 		[[ "$VERBOSE" == yes ]] && echo "Adding IPs from $i"
 		else
