@@ -9,6 +9,7 @@ if [[ -z "$1" ]]; then
     exit 1
 fi
 
+# shellcheck disable=SC1090
 if ! source "$1"; then
     echo "Error: can't load configuration file $1"
     exit 1
