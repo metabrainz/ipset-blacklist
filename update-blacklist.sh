@@ -35,24 +35,53 @@ function filterIPv4() {
 	|iprange
 }
 
-function filterNetworks() {
-	sed -r -e '/^(0\.0\.0\.0|10\.|127\.|172\.1[6-9]\.|172\.2[0-9]\.|172\.3[0-1]\.|192\.168\.|22[4-9]\.|23[0-9]\.)/d' "$@"|sort -V|uniq
-}
 
 MYTMPDIR=$(mktemp -d)
 
-# remote lists
+# local white lists
+if [[ ! -e "$IP_WHITELIST_LOCAL" ]]; then
+	touch "$IP_WHITELIST_LOCAL"
+	IP_WHITELIST_LOCAL_TMP="$MYTMPDIR/ip_whitelist_local_tmp"
+	cat > "$IP_WHITELIST_LOCAL_TMP" <<-EOF
+	10.0.0.0/8
+	127.0.0.0/8
+	172.16.0.0/12
+	192.168.0.0/16
+	EOF
+	for i in "${WHITELISTS_LOCAL[@]}"
+	do
+		FILE="$IP_BLACKLIST_DIR/$i"
+		if [[ -e "$FILE" ]]; then
+			[[ "$VERBOSE" == yes ]] && echo "Whitelisting IPs from $FILE"
+			filterIPv4 "$FILE" >> "$IP_WHITELIST_LOCAL_TMP"
+		else
+			echo >&2 -e "\nError: WHITELIST_LOCAL: no such file: $FILE"
+			exit 1
+		fi
+	done
+	iprange "$IP_WHITELIST_LOCAL_TMP" > "$IP_WHITELIST_LOCAL"
+	rm -f "$IP_WHITELIST_LOCAL_TMP"
+fi
+
+# remote black lists
 if [[ ! -e "$IP_BLACKLIST_REMOTE" ]]; then
 	touch "$IP_BLACKLIST_REMOTE"
 	IP_BLACKLIST_TMP="$MYTMPDIR/ip_blacklist_tmp"
 	CURL_ERROR=false
+	COUNT=0
 	for i in "${BLACKLISTS[@]}"
 	do
 		IP_TMP="$MYTMPDIR/ip_tmp"
+		[[ "$VERBOSE" == yes ]] && echo "Retrieving $i"
 		let HTTP_RC=$(curl -L -A "blacklist-update/script/github" --connect-timeout 10 --max-time 10 -o "$IP_TMP" -s -w "%{http_code}" "$i")
+		[[ "$VERBOSE" == yes ]] && echo "Response code: $HTTP_RC"
 		if [ $HTTP_RC -eq 200 ] || [ $HTTP_RC -eq 302 ] || [ $HTTP_RC -eq 0 ]; then # "0" because file:/// returns 000
 			filterIPv4 "$IP_TMP" >> "$IP_BLACKLIST_TMP"
-		[[ "$VERBOSE" == yes ]] && echo "Adding IPs from $i"
+			if [[ "$VERBOSE" == yes ]]; then
+				NEWCOUNT=$(wc -l "$IP_BLACKLIST_TMP"|cut -d' ' -f1)
+				echo "Adding $((NEWCOUNT-COUNT)) IPs from $i"
+				COUNT=$NEWCOUNT
+			fi
 		else
 			CURL_ERROR=true
 			echo >&2 -e "\nWarning: curl returned HTTP response code $HTTP_RC for URL $i"
@@ -66,49 +95,41 @@ if [[ ! -e "$IP_BLACKLIST_REMOTE" ]]; then
 	fi
 
 	# sort -nu does not work as expected
-	filterNetworks "$IP_BLACKLIST_TMP" >| "$IP_BLACKLIST_REMOTE"
+	iprange "$IP_BLACKLIST_TMP" > "$IP_BLACKLIST_REMOTE"
 	rm -f "$IP_BLACKLIST_TMP"
+fi
+
+if [[ "$VERBOSE" == yes ]]; then
+	echo -n "Remote blacklists entries:"
+	wc -l "$IP_BLACKLIST_REMOTE"|cut -d' ' -f1
 fi
 
 # local black lists
 if [[ ! -e "$IP_BLACKLIST_LOCAL" ]]; then
 	touch "$IP_BLACKLIST_LOCAL"
 	IP_BLACKLIST_LOCAL_TMP="$MYTMPDIR/ip_blacklist_local_tmp"
+	COUNT=0
 	for i in "${BLACKLISTS_LOCAL[@]}"
 	do
 		FILE="$IP_BLACKLIST_DIR/$i"
 		if [[ -e "$FILE" ]]; then
 			[[ "$VERBOSE" == yes ]] && echo "Blacklisting IPs from $FILE"
 			filterIPv4 "$FILE" >> "$IP_BLACKLIST_LOCAL_TMP"
+			if [[ "$VERBOSE" == yes ]]; then
+				NEWCOUNT=$(wc -l "$IP_BLACKLIST_LOCAL_TMP"|cut -d' ' -f1)
+				echo "Adding $((NEWCOUNT-COUNT)) IPs from $i"
+				COUNT=$NEWCOUNT
+			fi
 		else
 			echo >&2 -e "\nError: BLACKLIST_LOCAL: no such file: $FILE"
 			exit 1
 		fi
 	done
-	filterNetworks "$IP_BLACKLIST_LOCAL_TMP" >| "$IP_BLACKLIST_LOCAL"
+	iprange "$IP_BLACKLIST_LOCAL_TMP" > "$IP_BLACKLIST_LOCAL"
 	rm -f "$IP_BLACKLIST_LOCAL_TMP"
 fi
 
-filterNetworks "$IP_BLACKLIST_REMOTE" "$IP_BLACKLIST_LOCAL" >| "$IP_BLACKLIST"
-
-# local white lists
-if [[ ! -e "$IP_WHITELIST_LOCAL" ]]; then
-	touch "$IP_WHITELIST_LOCAL"
-	IP_WHITELIST_LOCAL_TMP="$MYTMPDIR/ip_whitelist_local_tmp"
-	for i in "${WHITELISTS_LOCAL[@]}"
-	do
-		FILE="$IP_BLACKLIST_DIR/$i"
-		if [[ -e "$FILE" ]]; then
-			[[ "$VERBOSE" == yes ]] && echo "Whitelisting IPs from $FILE"
-			filterIPv4 "$FILE" >> "$IP_WHITELIST_LOCAL_TMP"
-		else
-			echo >&2 -e "\nError: WHITELIST_LOCAL: no such file: $FILE"
-			exit 1
-		fi
-	done
-	filterIPv4 "$IP_WHITELIST_LOCAL_TMP" >| "$IP_WHITELIST_LOCAL"
-	rm -f "$IP_WHITELIST_LOCAL_TMP"
-fi
+iprange --union "$IP_BLACKLIST_REMOTE" "$IP_BLACKLIST_LOCAL" --except "$IP_WHITELIST_LOCAL" > "$IP_BLACKLIST"
 
 IP_WHITELIST="$IP_WHITELIST_LOCAL"
 
@@ -120,19 +141,12 @@ cat >| "$IP_BLACKLIST_RESTORE" <<EOF
 $IPSET_TMP_BLACKLIST_CREATE
 $IPSET_BLACKLIST_CREATE
 flush $IPSET_TMP_BLACKLIST_NAME
-add $IPSET_TMP_BLACKLIST_NAME 10.0.0.0/8 nomatch
-add $IPSET_TMP_BLACKLIST_NAME 127.0.0.0/8 nomatch
-add $IPSET_TMP_BLACKLIST_NAME 172.16.0.0/12 nomatch
-add $IPSET_TMP_BLACKLIST_NAME 192.168.0.0/16 nomatch
 EOF
 
-sed -rn -e '/^#|^$/d' \
-    -e "s/^([0-9./]+).*/add $IPSET_TMP_BLACKLIST_NAME \1 nomatch/p" "$IP_WHITELIST" >> "$IP_BLACKLIST_RESTORE"
-
-# can be IPv4 including netmask notation
-# IPv6 ? -e "s/^([0-9a-f:./]+).*/add $IPSET_TMP_BLACKLIST_NAME \1/p" \ IPv6
-sed -rn -e '/^#|^$/d' \
-    -e "s/^([0-9./]+).*/add $IPSET_TMP_BLACKLIST_NAME \1/p" "$IP_BLACKLIST" >> "$IP_BLACKLIST_RESTORE"
+(sed -rn -e '/^#|^$/d' \
+	-e "s/^([0-9./]+).*/add $IPSET_TMP_BLACKLIST_NAME \1 nomatch/p" "$IP_WHITELIST"; \
+ sed -rn -e '/^#|^$/d' \
+	-e "s/^([0-9./]+).*/add $IPSET_TMP_BLACKLIST_NAME \1/p" "$IP_BLACKLIST" ) >> "$IP_BLACKLIST_RESTORE"
 
 cat >> "$IP_BLACKLIST_RESTORE" <<EOF
 swap $IPSET_BLACKLIST_NAME $IPSET_TMP_BLACKLIST_NAME
@@ -141,7 +155,11 @@ EOF
 
 if [[ "$VERBOSE" == yes ]]; then
     echo
-    echo "Number of blacklisted IP/networks found: `wc -l $IP_BLACKLIST | cut -d' ' -f1`"
+    echo -n "Number of whitelisted IP/networks found: "
+    wc -l "$IP_WHITELIST" | cut -d' ' -f1
+    echo -n "Number of blacklisted IP/networks found: "
+    wc -l "$IP_BLACKLIST" | cut -d' ' -f1
+    echo "Ipset restore file written to: $IP_BLACKLIST_RESTORE"
 fi
 
 # create set script
