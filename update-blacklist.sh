@@ -1,5 +1,9 @@
 #!/bin/bash
 
+# REQUIRES:
+# https://github.com/firehol/iprange
+# Ubuntu: apt install iprange
+
 trap 'rm -rf "$MYTMPDIR"' EXIT
 
 # usage update-blacklist.sh <configuration file>
